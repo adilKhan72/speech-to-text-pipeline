@@ -48,22 +48,37 @@ def offset_segments(segments: list[dict], offset_seconds: float) -> list[dict]:
     ]
 
 
-def transcribe_chunked(normalized_path: str, target_chunk_seconds: float = DEFAULT_TARGET_CHUNK_SECONDS) -> dict:
+def transcribe_chunked(
+    normalized_path: str,
+    target_chunk_seconds: float = DEFAULT_TARGET_CHUNK_SECONDS,
+    language: str | None = None,
+    task: str = "transcribe",
+) -> dict:
     """Transcribe a long file chunk by chunk, stitching timestamps back to one timeline.
 
     Each chunk is already a VAD-selected speech region, so vad_filter is disabled for
     the per-chunk calls — the outer split already did that job; running it twice would
     just be wasted compute.
+
+    If no language hint was given, the language detected on the first chunk is pinned
+    for the rest — otherwise every chunk re-detects independently and a quiet or
+    code-switched chunk can flip the language mid-file.
     """
     model = get_model()
     all_segments: list[dict] = []
 
     for chunk in split_into_chunks(normalized_path, target_chunk_seconds):
-        segment_iter, _ = model.transcribe(chunk["audio"], vad_filter=False)
+        segment_iter, info = model.transcribe(chunk["audio"], vad_filter=False, language=language, task=task)
+        language = language or info.language
         local_segments = [
             {"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip()}
             for s in segment_iter
         ]
         all_segments.extend(offset_segments(local_segments, chunk["offset_seconds"]))
 
-    return {"text": " ".join(s["text"] for s in all_segments), "segments": all_segments}
+    return {
+        "text": " ".join(s["text"] for s in all_segments),
+        "segments": all_segments,
+        "language": language,
+        "task": task,
+    }

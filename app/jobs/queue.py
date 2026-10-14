@@ -24,7 +24,7 @@ def get_queue() -> Queue:
     return _queue
 
 
-def enqueue_transcription(job_id: str) -> None:
+def enqueue_transcription(job_id: str, task: str = "transcribe", language: str | None = None) -> None:
     """Drop a job onto the queue for a worker to pick up.
 
     Retry only covers transient failures — the task itself decides whether an error
@@ -36,6 +36,8 @@ def enqueue_transcription(job_id: str) -> None:
     get_queue().enqueue(
         process_transcription_job,
         job_id,
+        task,
+        language,
         job_timeout="30m",
         retry=Retry(max=RETRY_MAX_ATTEMPTS, interval=RETRY_INTERVALS_SECONDS),
     )

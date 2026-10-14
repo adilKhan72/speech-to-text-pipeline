@@ -2,15 +2,18 @@ from rq import get_current_job
 
 from app.db.models import Job, JobStatus
 from app.db.session import get_session
-from app.pipeline.exceptions import UnsupportedAudioError
+from app.pipeline.exceptions import InvalidOptionsError, UnsupportedAudioError
 from app.pipeline.pipeline import run_pipeline
 from app.storage.local_fs import get_storage
 
 
-def process_transcription_job(job_id: str) -> None:
+def process_transcription_job(job_id: str, task: str = "transcribe", language: str | None = None) -> None:
     """The function an rq worker actually runs for a queued job.
 
-    Permanent failures (UnsupportedAudioError) are marked failed and never re-raised,
+    task/language default to plain transcription so jobs enqueued before these options
+    existed still run unchanged.
+
+    Permanent failures (UnsupportedAudioError, InvalidOptionsError) are marked failed and never re-raised,
     so RQ's Retry never fires for them — retrying a corrupted file forever wastes
     compute and hides a problem that needs a different input, not another attempt.
 
@@ -34,8 +37,8 @@ def process_transcription_job(job_id: str) -> None:
         audio_path = storage.get_path(job.storage_key)
 
         try:
-            result = run_pipeline(audio_path)
-        except UnsupportedAudioError as e:
+            result = run_pipeline(audio_path, task, language)
+        except (UnsupportedAudioError, InvalidOptionsError) as e:
             job.status = JobStatus.FAILED
             job.error_message = str(e)
             session.commit()
