@@ -7,8 +7,16 @@ it is.
 ## What's here
 
 ```
-validate → normalize (ffmpeg) → transcribe (faster-whisper) → segments + timestamps
+validate → normalize (ffmpeg) → transcribe / translate (faster-whisper) → segments + timestamps
 ```
+
+Two modes, chosen per request with the `task` form field:
+
+- **`transcribe`** (default): text in the spoken language.
+- **`translate`**: English text from any spoken language. For example, Urdu speech in, English
+  text out, using Whisper's built-in speech translation with no second model.
+
+An optional `language` hint (an ISO code such as `ur`) skips auto-detection.
 
 Two ways to hit that pipeline:
 
@@ -45,10 +53,16 @@ curl -X POST http://localhost:8000/v1/transcribe \
   -H "X-API-Key: <your API_KEY>" \
   -F "file=@sample.wav"
 
+# Urdu audio -> English text
+curl -X POST http://localhost:8000/v1/transcribe \
+  -H "X-API-Key: <your API_KEY>" \
+  -F "file=@urdu_clip.mp3" -F "task=translate" -F "language=ur"
+# => {"text": "...", "segments": [...], "language": "ur", "task": "translate", ...}
+
 curl -X POST http://localhost:8000/v1/jobs \
   -H "X-API-Key: <your API_KEY>" \
   -F "file=@sample.wav"
-# => {"job_id": "...", "status": "queued"}
+# => {"job_id": "...", "status": "queued"}   (task / language work here too)
 
 curl http://localhost:8000/v1/jobs/<job_id> -H "X-API-Key: <your API_KEY>"
 ```
@@ -136,8 +150,18 @@ simplifications for this project's scope — `app/auth.py` and `app/config.py` s
 so. Production would put OAuth2/JWT in front of this, and Postgres behind it once
 more than one process needs to write concurrently.
 
+**Translation is a Whisper task, not a second model.** `task=translate` uses
+Whisper's own speech-to-English translation, so Urdu (or any supported language)
+goes straight from audio to English text in one pass. A separate MT model would add
+a second error source and lose segment timestamps. Options are validated against
+faster-whisper's language list at the API boundary (422 before anything is stored or
+queued) and passed to the worker as RQ job arguments rather than new DB columns, so
+retries keep them and no schema migration is needed. On long files with no language
+hint, the language detected on the first chunk is pinned for the rest, so a quiet or
+code-switched (Urdu/English) chunk can't flip the language mid-file.
+
 **Not handled, on purpose:** speaker diarization is a distinct model/step, out of
-scope here. Same for language hints beyond Whisper's own auto-detection.
+scope here.
 
 ## Known limitations
 
@@ -146,8 +170,13 @@ scope here. Same for language hints beyond Whisper's own auto-detection.
 - **Rate limiting** has never actually been pushed past its configured limit.
 - **The sync endpoint's concurrency semaphore** has only been hit one request at a
   time, not under real concurrent load.
+- **Translation quality** depends heavily on model size, and Whisper's own published
+  results show smaller models are much weaker at translation. The default `base`
+  model (`WHISPER_MODEL_SIZE`) is sized for CPU demos; use `medium` or larger for
+  real Urdu→English work. The translate path is covered by mocked tests, not yet by a
+  slow test on real Urdu audio.
 
-These would be the first three things to properly test given more time.
+These would be the first things to properly test given more time.
 
 ## Project layout
 
@@ -161,7 +190,8 @@ app/
     transcribe.py            # POST /v1/transcribe (sync)
     jobs.py                   # POST /v1/jobs, GET /v1/jobs/{id} (async)
   pipeline/
-    exceptions.py             # UnsupportedAudioError (permanent) vs TransientPipelineError
+    exceptions.py             # UnsupportedAudioError / InvalidOptionsError (permanent) vs TransientPipelineError
+    options.py                 # task (transcribe|translate) + language validation
     normalize.py               # ffprobe validation + ffmpeg -> 16kHz mono wav
     transcribe.py                # loads faster-whisper once; simple full-file path
     chunking.py                   # VAD-aligned splitting + timestamp stitching for long audio

@@ -1,12 +1,14 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from app.auth import require_api_key
 from app.db.models import Job, JobStatus
 from app.db.session import get_session
 from app.jobs.queue import enqueue_transcription
+from app.pipeline.exceptions import InvalidOptionsError
+from app.pipeline.options import validate_options
 from app.rate_limit import limiter
 from app.config import settings
 from app.storage.local_fs import get_storage
@@ -33,12 +35,25 @@ class JobStatusResponse(BaseModel):
     response_model=JobSubmitResponse,
 )
 @limiter.limit(settings.rate_limit)
-async def submit_job(request: Request, file: UploadFile = File(...)) -> JobSubmitResponse:
+async def submit_job(
+    request: Request,
+    file: UploadFile = File(...),
+    task: str = Form("transcribe"),
+    language: str | None = Form(None),
+) -> JobSubmitResponse:
     """Asynchronous path: saves the audio, queues the job, returns immediately.
 
     This is where the real concurrency story lives — RQ worker count is the actual
     throttle on how many transcriptions run at once, not this endpoint.
+
+    Options are validated here, before anything is stored or queued, and travel to the
+    worker as job arguments (RQ keeps them across retries) rather than as new DB columns.
     """
+    try:
+        task, language = validate_options(task, language)
+    except InvalidOptionsError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="empty file")
@@ -54,7 +69,7 @@ async def submit_job(request: Request, file: UploadFile = File(...)) -> JobSubmi
     finally:
         session.close()
 
-    enqueue_transcription(job_id)
+    enqueue_transcription(job_id, task, language)
 
     return JobSubmitResponse(job_id=job_id, status=JobStatus.QUEUED.value)
 

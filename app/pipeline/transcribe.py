@@ -19,8 +19,8 @@ def get_model() -> WhisperModel:
     )
 
 
-def transcribe_audio(normalized_path: str, language: str | None = None) -> dict:
-    """Transcribe a normalized (16kHz mono WAV) file.
+def transcribe_audio(normalized_path: str, language: str | None = None, task: str = "transcribe") -> dict:
+    """Transcribe (or translate to English) a normalized (16kHz mono WAV) file.
 
     faster-whisper already slides through arbitrarily long audio internally in ~30s
     windows and returns segments with timestamps correct relative to the whole file —
@@ -29,7 +29,7 @@ def transcribe_audio(normalized_path: str, language: str | None = None) -> dict:
     needed.
     """
     model = get_model()
-    segment_iter, info = model.transcribe(normalized_path, vad_filter=True, language=language)
+    segment_iter, info = model.transcribe(normalized_path, vad_filter=True, language=language, task=task)
 
     segments = [
         {"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip()}
@@ -41,5 +41,6 @@ def transcribe_audio(normalized_path: str, language: str | None = None) -> dict:
         "text": text,
         "segments": segments,
         "language": info.language,
+        "task": task,
         "duration_seconds": info.duration,
     }

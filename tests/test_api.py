@@ -80,7 +80,7 @@ def test_submit_job_creates_queued_job_and_enqueues_it(mock_enqueue):
     assert response.status_code == 202
     body = response.json()
     assert body["status"] == "queued"
-    mock_enqueue.assert_called_once_with(body["job_id"])
+    mock_enqueue.assert_called_once_with(body["job_id"], "transcribe", None)
 
     session = get_session()
     job = session.get(Job, body["job_id"])
@@ -129,3 +129,63 @@ def test_get_job_returns_done_status_and_transcript():
     assert body["transcript"] == FAKE_TRANSCRIPT
 
     _cleanup_job(job_id)
+
+
+@patch("app.routers.transcribe.run_pipeline", return_value={**FAKE_TRANSCRIPT, "task": "translate", "language": "ur"})
+def test_transcribe_sync_passes_translate_options_to_pipeline(mock_run_pipeline):
+    response = client.post(
+        "/v1/transcribe",
+        headers={"X-API-Key": settings.api_key},
+        files={"file": ("urdu.wav", io.BytesIO(b"fake"), "audio/wav")},
+        data={"task": "translate", "language": "ur"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["task"] == "translate"
+    _, task, language = mock_run_pipeline.call_args.args
+    assert (task, language) == ("translate", "ur")
+
+
+@patch("app.routers.transcribe.run_pipeline")
+def test_transcribe_rejects_unknown_task_before_running_pipeline(mock_run_pipeline):
+    response = client.post(
+        "/v1/transcribe",
+        headers={"X-API-Key": settings.api_key},
+        files={"file": ("a.wav", io.BytesIO(b"fake"), "audio/wav")},
+        data={"task": "summarize"},
+    )
+
+    assert response.status_code == 422
+    mock_run_pipeline.assert_not_called()
+
+
+@patch("app.routers.jobs.enqueue_transcription")
+def test_submit_job_forwards_translate_options_to_queue(mock_enqueue):
+    response = client.post(
+        "/v1/jobs",
+        headers={"X-API-Key": settings.api_key},
+        files={"file": ("urdu.wav", io.BytesIO(b"fake bytes"), "audio/wav")},
+        data={"task": "translate", "language": "ur"},
+    )
+
+    assert response.status_code == 202
+    job_id = response.json()["job_id"]
+    mock_enqueue.assert_called_once_with(job_id, "translate", "ur")
+
+    session = get_session()
+    job = session.get(Job, job_id)
+    session.close()
+    _cleanup_job(job_id, job.storage_key)
+
+
+@patch("app.routers.jobs.enqueue_transcription")
+def test_submit_job_rejects_bad_language_without_storing_anything(mock_enqueue):
+    response = client.post(
+        "/v1/jobs",
+        headers={"X-API-Key": settings.api_key},
+        files={"file": ("a.wav", io.BytesIO(b"fake bytes"), "audio/wav")},
+        data={"language": "klingon"},
+    )
+
+    assert response.status_code == 422
+    mock_enqueue.assert_not_called()
