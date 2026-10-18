@@ -4,7 +4,7 @@ uvicorn[standard]==0.54.0
 python-multipart==0.0.32
 faster-whisper==1.2.1
 sqlalchemy==2.1.4
-redis==5.0.8
+redis==8.1.0
 rq==2.12.0
 slowapi==0.1.10
 pydantic-settings==2.16.0
