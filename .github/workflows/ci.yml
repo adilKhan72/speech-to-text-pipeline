@@ -18,7 +18,7 @@ jobs:
     env:
       REDIS_URL: redis://localhost:6379/0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -38,6 +38,6 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build image
         run: docker build -t speech-to-text-pipeline .
