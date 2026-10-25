@@ -1,13 +1,13 @@
 requests==2.34.2
-fastapi==0.143.2
+fastapi==0.159.1
 uvicorn[standard]==0.54.0
 python-multipart==0.0.32
 faster-whisper==1.2.1
-sqlalchemy==2.1.4
+sqlalchemy==2.1.6
 redis==8.1.0
 rq==2.12.0
 slowapi==0.1.10
-pydantic-settings==2.16.0
+pydantic-settings==2.16.1
 python-dotenv==1.2.4
 pytest==9.1.1
 httpx==0.28.1
